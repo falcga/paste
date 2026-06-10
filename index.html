@@ -55,7 +55,6 @@
     // ----- настройки -----
     const STORAGE_KEY = 'simple_pastebin';
     const MAX_PASTES = 200;
-    const ID_LENGTH = 2;
     const ALLOWED_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 
     // ----- данные -----
@@ -70,7 +69,6 @@
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     }
 
-    // случайный ID из двух букв
     function randomId(existing) {
         let id;
         do {
@@ -80,7 +78,6 @@
         return id;
     }
 
-    // удаление старых паст, если превышен лимит
     function prune(data) {
         const entries = Object.entries(data);
         if (entries.length <= MAX_PASTES) return data;
@@ -90,7 +87,6 @@
         return data;
     }
 
-    // создание пасты
     function createPaste(text, customId = null) {
         let data = loadData();
         let id = null;
@@ -126,18 +122,23 @@
         return false;
     }
 
-    // ----- роутинг -----
-    function navigateTo(path) {
-        history.pushState(null, '', path);
-        render();
-    }
-
-    function getRoute() {
-        let path = window.location.pathname;
-        if (path === '/' || path === '') return { type: 'home' };
-        const match = path.match(/^\/([A-Za-z]{2})$/);
+    // ----- хэш-роутинг -----
+    function getHashRoute() {
+        let hash = window.location.hash.slice(1); // убираем #
+        if (hash.startsWith('/')) hash = hash.slice(1);
+        if (!hash) return { type: 'home' };
+        // ожидаем /ab или просто ab
+        const match = hash.match(/^([A-Za-z]{2})$/);
         if (match) return { type: 'paste', id: match[1] };
         return { type: 'notfound' };
+    }
+
+    function setHashId(id) {
+        window.location.hash = '/' + id;
+    }
+
+    function navigateToHome() {
+        window.location.hash = '';
     }
 
     // ----- рендер -----
@@ -162,16 +163,16 @@
             }
             const res = createPaste(text, custom === '' ? null : custom);
             if (res.ok) {
-                const url = window.location.origin + '/' + res.id;
+                const url = window.location.origin + window.location.pathname + '#/' + res.id;
                 document.getElementById('result').innerHTML = `
                     <div class="info">сохранено. ссылка: <a href="${url}" data-link>${url}</a></div>
                 `;
                 document.getElementById('pasteText').value = '';
                 document.getElementById('customId').value = '';
-                // обработчик для ссылки, чтобы работал pushState
                 document.querySelector('a[data-link]')?.addEventListener('click', (e) => {
                     e.preventDefault();
-                    navigateTo('/' + res.id);
+                    setHashId(res.id);
+                    render(); // перерисовать
                 });
             } else {
                 document.getElementById('result').innerHTML = `<div class="error">${res.error}</div>`;
@@ -208,12 +209,14 @@
         document.getElementById('delete').addEventListener('click', () => {
             if (confirm('удалить пасту навсегда?')) {
                 deletePaste(id);
-                navigateTo('/');
+                navigateToHome();
+                render();
             }
         });
 
         document.getElementById('home').addEventListener('click', () => {
-            navigateTo('/');
+            navigateToHome();
+            render();
         });
     }
 
@@ -223,11 +226,14 @@
             <p>такого идентификатора не существует</p>
             <button id="home">на главную</button>
         `;
-        document.getElementById('home').addEventListener('click', () => navigateTo('/'));
+        document.getElementById('home').addEventListener('click', () => {
+            navigateToHome();
+            render();
+        });
     }
 
     function render() {
-        const route = getRoute();
+        const route = getHashRoute();
         if (route.type === 'home') renderHome();
         else if (route.type === 'paste') renderPaste(route.id);
         else renderNotFound();
@@ -242,7 +248,7 @@
         });
     }
 
-    window.addEventListener('popstate', () => render());
+    window.addEventListener('hashchange', () => render());
     render();
 </script>
 </body>
