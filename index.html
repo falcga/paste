@@ -124,10 +124,9 @@
 
     // ----- хэш-роутинг -----
     function getHashRoute() {
-        let hash = window.location.hash.slice(1); // убираем #
+        let hash = window.location.hash.slice(1);
         if (hash.startsWith('/')) hash = hash.slice(1);
         if (!hash) return { type: 'home' };
-        // ожидаем /ab или просто ab
         const match = hash.match(/^([A-Za-z]{2})$/);
         if (match) return { type: 'paste', id: match[1] };
         return { type: 'notfound' };
@@ -172,7 +171,7 @@
                 document.querySelector('a[data-link]')?.addEventListener('click', (e) => {
                     e.preventDefault();
                     setHashId(res.id);
-                    render(); // перерисовать
+                    render();
                 });
             } else {
                 document.getElementById('result').innerHTML = `<div class="error">${res.error}</div>`;
@@ -190,14 +189,38 @@
             <h2>/${id}</h2>
             <div class="plaintext">${escapeHtml(text)}</div>
             <div class="flex" style="margin-top: 1rem;">
-                <button id="download">скачать .txt</button>
-                <button id="delete">удалить</button>
-                <button id="home">на главную</button>
+                <button id="copyBtn">копировать</button>
+                <button id="rawBtn">raw</button>
+                <button id="downloadBtn">скачать .txt</button>
+                <button id="deleteBtn">удалить</button>
+                <button id="homeBtn">на главную</button>
             </div>
         `;
         document.getElementById('app').innerHTML = html;
 
-        document.getElementById('download').addEventListener('click', () => {
+        // Copy
+        document.getElementById('copyBtn').addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(text);
+                const btn = document.getElementById('copyBtn');
+                const orig = btn.innerText;
+                btn.innerText = 'скопировано!';
+                setTimeout(() => { btn.innerText = orig; }, 1500);
+            } catch(e) {
+                alert('не удалось скопировать');
+            }
+        });
+
+        // Raw: открыть в новой вкладке как text/plain
+        document.getElementById('rawBtn').addEventListener('click', () => {
+            const blob = new Blob([text], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank');
+            setTimeout(() => URL.revokeObjectURL(url), 100);
+        });
+
+        // Download .txt
+        document.getElementById('downloadBtn').addEventListener('click', () => {
             const blob = new Blob([text], { type: 'text/plain' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
@@ -206,7 +229,8 @@
             URL.revokeObjectURL(a.href);
         });
 
-        document.getElementById('delete').addEventListener('click', () => {
+        // Delete
+        document.getElementById('deleteBtn').addEventListener('click', () => {
             if (confirm('удалить пасту навсегда?')) {
                 deletePaste(id);
                 navigateToHome();
@@ -214,7 +238,8 @@
             }
         });
 
-        document.getElementById('home').addEventListener('click', () => {
+        // Home
+        document.getElementById('homeBtn').addEventListener('click', () => {
             navigateToHome();
             render();
         });
