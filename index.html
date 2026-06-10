@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>txtbin / короткие ссылки</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, monospace;
+            background: white;
+            color: #111;
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            line-height: 1.5;
+        }
+        textarea {
+            width: 100%;
+            box-sizing: border-box;
+            font-family: monospace;
+            font-size: 0.9rem;
+            padding: 0.8rem;
+            border: 1px solid #ccc;
+            background: #fefefe;
+        }
+        button, .button {
+            background: #eaeaea;
+            border: 1px solid #aaa;
+            padding: 0.4rem 0.9rem;
+            font-size: 0.9rem;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        button:hover { background: #d5d5d5; }
+        input { padding: 0.4rem; border: 1px solid #bbb; font-family: monospace; }
+        .flex { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: baseline; }
+        .error { color: #b00; border-left: 3px solid #b00; padding-left: 0.8rem; background: #fff0f0; }
+        .info { color: #0a5; font-size: 0.85rem; }
+        .plaintext {
+            background: #f8f8f8;
+            border: 1px solid #ddd;
+            padding: 1rem;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        hr { border: none; border-top: 1px solid #eee; margin: 1rem 0; }
+    </style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script>
+    // ----- настройки -----
+    const STORAGE_KEY = 'simple_pastebin';
+    const MAX_PASTES = 200;
+    const ID_LENGTH = 2;
+    const ALLOWED_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+
+    // ----- данные -----
+    function loadData() {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return {};
+        try { return JSON.parse(raw); }
+        catch(e) { return {}; }
+    }
+
+    function saveData(data) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    }
+
+    // случайный ID из двух букв
+    function randomId(existing) {
+        let id;
+        do {
+            id = ALLOWED_CHARS[Math.floor(Math.random() * 52)] +
+                 ALLOWED_CHARS[Math.floor(Math.random() * 52)];
+        } while (existing[id]);
+        return id;
+    }
+
+    // удаление старых паст, если превышен лимит
+    function prune(data) {
+        const entries = Object.entries(data);
+        if (entries.length <= MAX_PASTES) return data;
+        entries.sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0));
+        const toDelete = entries.slice(0, entries.length - MAX_PASTES);
+        for (let [id] of toDelete) delete data[id];
+        return data;
+    }
+
+    // создание пасты
+    function createPaste(text, customId = null) {
+        let data = loadData();
+        let id = null;
+        if (customId && customId.trim() !== '') {
+            if (!/^[A-Za-z]{2}$/.test(customId)) {
+                return { ok: false, error: 'ID должен быть ровно 2 буквы (a-z, A-Z)' };
+            }
+            if (data[customId]) {
+                return { ok: false, error: 'ID уже занят' };
+            }
+            id = customId;
+        } else {
+            id = randomId(data);
+        }
+        data[id] = { text: text, ts: Date.now() };
+        data = prune(data);
+        saveData(data);
+        return { ok: true, id: id };
+    }
+
+    function getPaste(id) {
+        const data = loadData();
+        return data[id] ? data[id].text : null;
+    }
+
+    function deletePaste(id) {
+        let data = loadData();
+        if (data[id]) {
+            delete data[id];
+            saveData(data);
+            return true;
+        }
+        return false;
+    }
+
+    // ----- роутинг -----
+    function navigateTo(path) {
+        history.pushState(null, '', path);
+        render();
+    }
+
+    function getRoute() {
+        let path = window.location.pathname;
+        if (path === '/' || path === '') return { type: 'home' };
+        const match = path.match(/^\/([A-Za-z]{2})$/);
+        if (match) return { type: 'paste', id: match[1] };
+        return { type: 'notfound' };
+    }
+
+    // ----- рендер -----
+    function renderHome() {
+        const html = `
+            <h2>создать новую пасту</h2>
+            <textarea id="pasteText" rows="8" placeholder="введите текст..."></textarea>
+            <div class="flex" style="margin-top: 0.8rem;">
+                <input type="text" id="customId" placeholder="свой ID (2 буквы, необязательно)" maxlength="2" style="width: 11rem;">
+                <button id="createBtn">сохранить</button>
+            </div>
+            <div id="result"></div>
+        `;
+        document.getElementById('app').innerHTML = html;
+
+        document.getElementById('createBtn').addEventListener('click', () => {
+            const text = document.getElementById('pasteText').value;
+            const custom = document.getElementById('customId').value.trim();
+            if (!text.trim()) {
+                document.getElementById('result').innerHTML = '<div class="error">текст не может быть пустым</div>';
+                return;
+            }
+            const res = createPaste(text, custom === '' ? null : custom);
+            if (res.ok) {
+                const url = window.location.origin + '/' + res.id;
+                document.getElementById('result').innerHTML = `
+                    <div class="info">сохранено. ссылка: <a href="${url}" data-link>${url}</a></div>
+                `;
+                document.getElementById('pasteText').value = '';
+                document.getElementById('customId').value = '';
+                // обработчик для ссылки, чтобы работал pushState
+                document.querySelector('a[data-link]')?.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    navigateTo('/' + res.id);
+                });
+            } else {
+                document.getElementById('result').innerHTML = `<div class="error">${res.error}</div>`;
+            }
+        });
+    }
+
+    function renderPaste(id) {
+        const text = getPaste(id);
+        if (!text) {
+            renderNotFound();
+            return;
+        }
+        const html = `
+            <h2>/${id}</h2>
+            <div class="plaintext">${escapeHtml(text)}</div>
+            <div class="flex" style="margin-top: 1rem;">
+                <button id="download">скачать .txt</button>
+                <button id="delete">удалить</button>
+                <button id="home">на главную</button>
+            </div>
+        `;
+        document.getElementById('app').innerHTML = html;
+
+        document.getElementById('download').addEventListener('click', () => {
+            const blob = new Blob([text], { type: 'text/plain' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `${id}.txt`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+        });
+
+        document.getElementById('delete').addEventListener('click', () => {
+            if (confirm('удалить пасту навсегда?')) {
+                deletePaste(id);
+                navigateTo('/');
+            }
+        });
+
+        document.getElementById('home').addEventListener('click', () => {
+            navigateTo('/');
+        });
+    }
+
+    function renderNotFound() {
+        document.getElementById('app').innerHTML = `
+            <h2>паста не найдена</h2>
+            <p>такого идентификатора не существует</p>
+            <button id="home">на главную</button>
+        `;
+        document.getElementById('home').addEventListener('click', () => navigateTo('/'));
+    }
+
+    function render() {
+        const route = getRoute();
+        if (route.type === 'home') renderHome();
+        else if (route.type === 'paste') renderPaste(route.id);
+        else renderNotFound();
+    }
+
+    function escapeHtml(str) {
+        return str.replace(/[&<>]/g, function(m) {
+            if (m === '&') return '&amp;';
+            if (m === '<') return '&lt;';
+            if (m === '>') return '&gt;';
+            return m;
+        });
+    }
+
+    window.addEventListener('popstate', () => render());
+    render();
+</script>
+</body>
+</html>
